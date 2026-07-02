@@ -1,153 +1,154 @@
+import contextlib
 import os
+import traceback
+
+# Windows + HuggingFace cache fixes (must run before heavy imports)
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("TRANSFORMERS_NO_TQDM", "1")
+os.environ.setdefault("DISABLE_TQDM", "1")
+
 import streamlit as st
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
-
-from langchain.chains import RetrievalQA
-
-from langchain_huggingface import HuggingFaceEmbeddings
+from dotenv import load_dotenv, find_dotenv
+from langchain_classic.chains import RetrievalQA
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
-from langchain_huggingface import HuggingFaceEndpoint
-from langchain_community.llms import HuggingFacePipeline
+from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
 
-## Uncomment the following files if you're not using pipenv as your virtual environment manager
-from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
+DB_FAISS_PATH = "vectorstore/db_faiss"
+LLM_MODEL_ID = "gpt2"
+CUSTOM_PROMPT_TEMPLATE = """
+Use the pieces of information provided in the context to answer the user's question.
+If you don't know the answer, say that you don't know. Do not make up an answer.
+Only use the given context.
 
-DB_FAISS_PATH="vectorstore/db_faiss"
+Context: {context}
+Question: {question}
+
+Start the answer directly. No small talk please.
+"""
+
+
 @st.cache_resource
 def get_vectorstore():
-    embedding_model=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
-    db=FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
-    return db
+    try:
+        with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            embedding_model = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={"local_files_only": True},
+            )
+    except Exception:
+        with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            embedding_model = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2"
+            )
+
+    return FAISS.load_local(
+        DB_FAISS_PATH,
+        embedding_model,
+        allow_dangerous_deserialization=True,
+    )
+
+
+@st.cache_resource
+def load_llm():
+    return HuggingFacePipeline.from_model_id(
+        model_id=LLM_MODEL_ID,
+        task="text-generation",
+        pipeline_kwargs={"max_new_tokens": 512},
+    )
 
 
 def set_custom_prompt(custom_prompt_template):
-    prompt=PromptTemplate(template=custom_prompt_template, input_variables=["context", "question"])
-    return prompt
+    return PromptTemplate(
+        template=custom_prompt_template,
+        input_variables=["context", "question"],
+    )
 
 
-def load_llm():
-    model_name = "gpt2"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    pipe = pipeline("text-generation", model=model, tokenizer=tokenizer, max_new_tokens=100)
-    local_llm = HuggingFacePipeline(pipeline=pipe)
-    return local_llm
+def retrieve_documents(retriever, query):
+    if hasattr(retriever, "invoke"):
+        return retriever.invoke(query)
+    return retriever.get_relevant_documents(query)
 
 
-def local_generate(prompt):
-    generator = pipeline("text-generation", model="gpt2")
-    result = generator(prompt, max_new_tokens=100)
-    return result[0]['generated_text']
+def fallback_answer(docs):
+    snippets = []
+    for doc in docs[:3]:
+        text = doc.page_content.strip()
+        if text:
+            snippets.append(text[:600])
+    return "Based on the medical encyclopedia:\n\n" + "\n\n".join(snippets)
 
 
 def main():
     st.title("Ask Chatbot!")
 
-    if 'messages' not in st.session_state:
+    if "messages" not in st.session_state:
         st.session_state.messages = []
 
     for message in st.session_state.messages:
-        st.chat_message(message['role']).markdown(message['content'])
+        st.chat_message(message["role"]).markdown(message["content"])
 
-    prompt=st.chat_input("Pass your prompt here")
+    prompt = st.chat_input("Pass your prompt here")
 
-    if prompt:
-        st.chat_message('user').markdown(prompt)
-        st.session_state.messages.append({'role':'user', 'content': prompt})
+    if not prompt:
+        return
 
-        CUSTOM_PROMPT_TEMPLATE = """
-Context: {context}
-Question: {question}
-Answer the question using only the context above. Be clear and concise.
-"""
+    st.chat_message("user").markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
-        HUGGINGFACE_REPO_ID = "gpt2"
-        HF_TOKEN=os.environ.get("HF_TOKEN")
-        print("HF_TOKEN:", HF_TOKEN)
-
-        try: 
+    try:
+        with st.spinner("Searching medical records and generating an answer..."):
             vectorstore = get_vectorstore()
-            print("Vectorstore:", vectorstore)
-            if vectorstore is None:
-                st.error("Failed to load the vector store")
-
-            print("Loading LLM...")
-            llm = load_llm()
-            print("LLM loaded:", llm)
-
-            # Create the PromptTemplate object
-            custom_prompt_template = set_custom_prompt(CUSTOM_PROMPT_TEMPLATE)
-
-            print("Building QA chain...")
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=llm,
-                retriever=vectorstore.as_retriever(search_kwargs={"k": 8}),
-                chain_type_kwargs={"prompt": custom_prompt_template}
-            )
-            print("QA chain built. Running RAG inference...")
-# this is to get summary...it is too small
-            # from transformers import pipeline
-            # summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-            # summary = summarizer(result_to_show, max_length=60, min_length=20, do_sample=False)
-            # result_to_show = summary[0]['summary_text']
-
             retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
-            docs = retriever.get_relevant_documents(prompt)
-            print("Retrieved docs:", docs)
-            print("First doc content:", docs[0].page_content if docs else "None")
+            docs = retrieve_documents(retriever, prompt)
 
             if not docs:
-                result_to_show = "Sorry, I couldn't find any relevant information in the document."
-                st.chat_message('assistant').markdown(result_to_show)
-                st.session_state.messages.append({'role':'assistant', 'content': result_to_show})
+                result_to_show = (
+                    "Sorry, I couldn't find any relevant information in the document."
+                )
             else:
                 try:
+                    llm = load_llm()
                     qa_chain = RetrievalQA.from_chain_type(
                         llm=llm,
                         retriever=retriever,
-                        chain_type_kwargs={"prompt": custom_prompt_template}
+                        chain_type="stuff",
+                        chain_type_kwargs={
+                            "prompt": set_custom_prompt(CUSTOM_PROMPT_TEMPLATE)
+                        },
                     )
-                    response = qa_chain({"query": prompt})
-                    result_to_show = response["result"]
-                    print("Raw LLM output:", result_to_show)
+                    response = qa_chain.invoke({"query": prompt})
+                    result_to_show = response["result"].strip()
+                except Exception as inner_exc:
+                    with open("medibot_error.log", "a", encoding="utf-8") as f:
+                        f.write("INNER EXCEPTION:\n")
+                        traceback.print_exception(type(inner_exc), inner_exc, inner_exc.__traceback__, file=f)
+                        f.write("\n")
+                    result_to_show = fallback_answer(docs)
 
-                    # Post-process to remove everything before the answer instruction
-                    split_key = "You are a medical expert."
-                    if split_key in result_to_show:
-                        result_to_show = result_to_show.split(split_key, 1)[-1].strip()
+        st.chat_message("assistant").markdown(result_to_show)
+        st.session_state.messages.append(
+            {"role": "assistant", "content": result_to_show}
+        )
 
-                    # Further filter out lines that repeat instructions or context
-                    lines = result_to_show.splitlines()
-                    filtered_lines = [
-                        line for line in lines
-                        if not line.strip().lower().startswith(("context:", "question:", "use the pieces", "start the answer"))
-                        and line.strip() != ""
-                    ]
-                    result_to_show = "\n".join(filtered_lines)
+    except Exception as e:
+        with open("medibot_error.log", "a", encoding="utf-8") as f:
+            f.write("OUTER EXCEPTION:\n")
+            traceback.print_exception(type(e), e, e.__traceback__, file=f)
+            f.write("\n")
+        st.error(f"Error: {type(e).__name__}: {e}")
+        result_to_show = "Sorry, I couldn't generate an answer for your question."
+        st.chat_message("assistant").markdown(result_to_show)
+        st.session_state.messages.append(
+            {"role": "assistant", "content": result_to_show}
+        )
 
-                    # Summarize if the answer is long enough
-                    if len(result_to_show.split()) > 120:  # Only summarize if input is long
-                        from transformers import pipeline
-                        summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-                        summary = summarizer(result_to_show, max_length=180, min_length=100, do_sample=False)
-                        result_to_show = summary[0]['summary_text']
-
-                    st.chat_message('assistant').markdown(result_to_show)
-                    st.session_state.messages.append({'role':'assistant', 'content': result_to_show})
-                except Exception as e:
-                    print("Exception in QA chain:", e)
-                    result_to_show = "Sorry, I couldn't generate an answer for your question."
-                    st.chat_message('assistant').markdown(result_to_show)
-                    st.session_state.messages.append({'role':'assistant', 'content': result_to_show})
-
-        except Exception as e:
-            import traceback
-            print("Exception:", e)
-            traceback.print_exc()
-            st.error(f"Error: {e}")
 
 if __name__ == "__main__":
     main()

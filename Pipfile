@@ -11,8 +11,12 @@ faiss-cpu = "*"
 pypdf = "*"
 huggingface-hub = "*"
 streamlit = "*"
+transformers = "*"
+python-dotenv = "*"
+torch = "*"
+sentence-transformers = "*"
 
 [dev-packages]
 
 [requires]
-python_version = "3.12"
+python_version = "3.13"
