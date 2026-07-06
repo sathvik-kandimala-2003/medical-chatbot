@@ -129,7 +129,7 @@ def generate_answer(llm, prompt_text):
 
 def main():
     st.set_page_config(page_title="Ask Chatbot!", page_icon="💬", layout="wide")
-    st.title("Ask Chatbot!")
+    st.title("Ask Sathvik's Chatbot!")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
