@@ -2,7 +2,8 @@ name: Deploy to EC2
 
 on:
   workflow_run:
-    workflows: ["Build and Push Docker Image"]
+    workflows:
+      - "Build and Push Docker Image to Amazon ECR"
     types:
       - completed
 
@@ -20,15 +21,16 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
 
           script: |
-            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 771088247647.dkr.ecr.ap-south-1.amazonaws.com
+            aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 771088247647.dkr.ecr.ap-south-1.amazonaws.com
 
-            docker pull 771088247647.dkr.ecr.ap-south-1.amazonaws.com/medical-chatbot:latest
+            sudo docker pull 771088247647.dkr.ecr.ap-south-1.amazonaws.com/medical-chatbot:latest
 
-            docker stop medical-chatbot || true
+            sudo docker stop medical-chatbot || true
 
-            docker rm medical-chatbot || true
+            sudo docker rm medical-chatbot || true
 
-            docker run -d \
+            sudo docker run -d \
               --name medical-chatbot \
+              --restart unless-stopped \
               -p 8501:8501 \
               771088247647.dkr.ecr.ap-south-1.amazonaws.com/medical-chatbot:latest
