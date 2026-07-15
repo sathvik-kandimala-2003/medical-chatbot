@@ -14,8 +14,7 @@ streamlit = "*"
 transformers = "*"
 python-dotenv = "*"
 torch = "*"
-sentence-transformers = "*"
-
+sentence-transformers = "*"google-generativeai = "*"
 [dev-packages]
 
 [requires]

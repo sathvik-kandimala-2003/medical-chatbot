@@ -1,7 +1,6 @@
-﻿import contextlib
+import contextlib
+import logging
 import os
-import re
-import traceback
 
 # Windows + HuggingFace cache fixes (must run before heavy imports)
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
@@ -16,44 +15,28 @@ from dotenv import load_dotenv, find_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
+from gemini_service import (
+    GeminiGenerationError,
+    NO_CONTEXT_MESSAGE,
+    format_sources,
+    generate_gemini_answer,
+)
+
 load_dotenv(find_dotenv())
 
+logging.basicConfig(
+    filename="medibot_error.log",
+    level=logging.ERROR,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 DB_FAISS_PATH = "vectorstore/db_faiss"
-LLM_MODEL_ID = "gpt2"
-MAX_NEW_TOKENS = 128
-RETRIEVAL_K = 3
+RETRIEVAL_K = 4
 
-CUSTOM_PROMPT_TEMPLATE = """
-Use only the following context to answer the question.
-If the answer is not contained in the context, say "I don't know."
-Keep the response brief and factual.
-
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
-"""
-
-
-def scrub_doc_text(text):
-    text = re.sub(r"\s*Resources\b.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
-    text = re.sub(r"\bReferences?\b.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
-    text = text.replace("\n", " ")
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def build_prompt(question, docs):
-    snippets = []
-    for doc in docs[:RETRIEVAL_K]:
-        text = scrub_doc_text(doc.page_content)
-        if text:
-            snippets.append(text)
-    context = "\n\n".join(snippets)
-    return CUSTOM_PROMPT_TEMPLATE.format(context=context, question=question)
+LLM_UNAVAILABLE_MESSAGE = (
+    "The AI assistant is temporarily unavailable. Please try again in a moment."
+)
 
 
 @st.cache_resource
@@ -78,57 +61,13 @@ def load_vectorstore():
     )
 
 
-def retrieve_documents(retriever, query):
-    if hasattr(retriever, "get_relevant_documents"):
-        return retriever.get_relevant_documents(query)
-    if hasattr(retriever, "_get_relevant_documents"):
-        return retriever._get_relevant_documents(query, run_manager=None)
-    raise AttributeError("Retriever does not support get_relevant_documents")
-
-
-def answer_from_docs(docs, question):
-    snippets = []
-    for doc in docs[:RETRIEVAL_K]:
-        text = scrub_doc_text(doc.page_content)
-        if text:
-            snippets.append(text)
-    if not snippets:
-        return "Sorry, I couldn't find any relevant information in the documents."
-
-    combined = " ".join(snippets)
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", combined) if s.strip()]
-    answer = []
-
-    if re.search(r"\bdiabetes\b", question, re.IGNORECASE):
-        for sentence in sentences:
-            if re.search(r"\bdiabetes\b|\bglucose\b|\burination\b|\bthirst\b|\bhunger\b|\blethargy\b|\binsulin\b|\btreatment\b|\bcomplications\b|\bkidney\b|\bheart disease\b|\bstroke\b|\bblindness\b", sentence, re.IGNORECASE):
-                answer.append(sentence)
-        if len(answer) < 3:
-            answer = sentences[:5]
-    if not answer:
-        answer = sentences[:5] if len(sentences) >= 5 else sentences
-    return " ".join(dict.fromkeys(answer))
-
-
-def clean_answer(answer):
-    if not answer:
-        return ""
-    answer = re.split(r"\bResources\b", answer, flags=re.IGNORECASE)[0]
-    answer = re.split(r"\bContext\b", answer, flags=re.IGNORECASE)[0]
-    answer = re.sub(r"^The following is.*?\.?\s*", "", answer, flags=re.IGNORECASE)
-    answer = re.sub(r"\s+", " ", answer).strip()
-    return answer
-
-
-def generate_answer(llm, prompt_text):
-    try:
-        return clean_answer(llm.invoke(prompt_text).strip())
-    except Exception:
-        return ""
+def retrieve_documents(vectorstore, query, k=RETRIEVAL_K):
+    retriever = vectorstore.as_retriever(search_kwargs={"k": k})
+    return retriever.invoke(query)
 
 
 def main():
-    st.set_page_config(page_title="Ask Chatbot!", page_icon="💬", layout="wide")
+    st.set_page_config(page_title="Ask Sathvik's Chatbot!", page_icon="💬", layout="wide")
     st.title("Ask Sathvik's Chatbot!")
 
     if "messages" not in st.session_state:
@@ -147,23 +86,30 @@ def main():
     try:
         with st.spinner("Searching medical records and generating an answer..."):
             vectorstore = load_vectorstore()
-            retriever = vectorstore.as_retriever(search_kwargs={"k": RETRIEVAL_K})
-            docs = retrieve_documents(retriever, prompt)
+            docs = retrieve_documents(vectorstore, prompt)
 
             if not docs:
-                result_to_show = "Sorry, I couldn't find any relevant medical information in the knowledge base."
+                result_to_show = NO_CONTEXT_MESSAGE
             else:
-                result_to_show = answer_from_docs(docs, prompt)
+                try:
+                    answer = generate_gemini_answer(prompt, docs)
+                except GeminiGenerationError:
+                    logger.exception("Gemini generation failed for query: %s", prompt)
+                    st.error("The AI assistant hit an error while generating a response.")
+                    result_to_show = LLM_UNAVAILABLE_MESSAGE
+                else:
+                    if answer.strip() == NO_CONTEXT_MESSAGE:
+                        result_to_show = NO_CONTEXT_MESSAGE
+                    else:
+                        sources = format_sources(docs)
+                        result_to_show = f"{answer}\n\n{sources}" if sources else answer
 
         st.chat_message("assistant").markdown(result_to_show)
         st.session_state.messages.append({"role": "assistant", "content": result_to_show})
-    except Exception as e:
-        with open("medibot_error.log", "a", encoding="utf-8") as f:
-            f.write("OUTER EXCEPTION:\n")
-            traceback.print_exception(type(e), e, e.__traceback__, file=f)
-            f.write("\n")
-        st.error(f"Error: {type(e).__name__}: {e}")
-        result_to_show = "Sorry, I couldn't generate an answer for your question."
+    except Exception:
+        logger.exception("Unexpected error handling query: %s", prompt)
+        st.error("Something went wrong while processing your question.")
+        result_to_show = LLM_UNAVAILABLE_MESSAGE
         st.chat_message("assistant").markdown(result_to_show)
         st.session_state.messages.append({"role": "assistant", "content": result_to_show})
 

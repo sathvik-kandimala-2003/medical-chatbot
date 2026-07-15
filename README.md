@@ -12,7 +12,7 @@ This project demonstrates a lightweight RAG-style chatbot for medical informatio
 - Retrieval-based answers from medical documents
 - FAISS vector search over embedded content
 - Docker support for easy deployment
-- Environment-based configuration for Hugging Face settings
+- Environment-based configuration for Gemini and Hugging Face settings
 - Simple, modular Python structure for experimentation
 
 ## Architecture
@@ -80,9 +80,10 @@ Create a `.env` file in the project root with the following:
 
 ```env
 HF_TOKEN=your_huggingface_token_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-The app also uses Hugging Face environment variables for offline/cache behavior. These are set in the Dockerfile and app startup code.
+The app uses Gemini 2.5 Flash for answer generation and Hugging Face embeddings for retrieval. The app also uses Hugging Face environment variables for offline/cache behavior. These are set in the Dockerfile and app startup code.
 
 ## Folder Structure
 
