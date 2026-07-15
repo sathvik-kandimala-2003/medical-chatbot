@@ -21,16 +21,28 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
 
           script: |
+            # Login to Amazon ECR
             aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 771088247647.dkr.ecr.ap-south-1.amazonaws.com
 
+            # Pull latest image
             sudo docker pull 771088247647.dkr.ecr.ap-south-1.amazonaws.com/medical-chatbot:latest
 
+            # Stop old container
             sudo docker stop medical-chatbot || true
 
+            # Remove old container
             sudo docker rm medical-chatbot || true
 
+            # Remove old env file if it exists
+            sudo rm -f /home/ec2-user/.env
+
+            # Create a fresh .env file from GitHub Secret
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" | sudo tee /home/ec2-user/.env > /dev/null
+
+            # Start new container with environment file
             sudo docker run -d \
               --name medical-chatbot \
               --restart unless-stopped \
+              --env-file /home/ec2-user/.env \
               -p 8501:8501 \
               771088247647.dkr.ecr.ap-south-1.amazonaws.com/medical-chatbot:latest
