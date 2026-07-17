@@ -60,3 +60,11 @@ dist/
 # ==========================
 .DS_Store
 Thumbs.db
+
+# ==========================
+# Dashboard analytics data / evaluation run outputs (generated, per-machine)
+# ==========================
+dashboard/storage/data/
+evaluation/reports/output/
+evaluation/plots/output/
+vectorstore/bm25_index.pkl

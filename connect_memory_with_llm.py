@@ -1,21 +1,22 @@
+import logging
+import os
+
 from dotenv import load_dotenv, find_dotenv
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
 
 from gemini_service import GeminiGenerationError, NO_CONTEXT_MESSAGE, format_sources, generate_gemini_answer
+from retrieval.loaders import build_hybrid_retriever
 
 load_dotenv(find_dotenv())
 
-DB_FAISS_PATH = "vectorstore/db_faiss"
-RETRIEVAL_K = 4
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def main():
-    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    db = FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
+    hybrid_retriever = build_hybrid_retriever()
 
     user_query = input("Write Query Here: ")
-    docs = db.as_retriever(search_kwargs={"k": RETRIEVAL_K}).invoke(user_query)
+    docs = hybrid_retriever.retrieve(user_query)
 
     if not docs:
         print(NO_CONTEXT_MESSAGE)

@@ -1,0 +1,50 @@
+[
+  {
+    "question": "What is diabetes?",
+    "ground_truth_answer": "Diabetes mellitus is a chronic disease in which the body cannot properly produce or respond to insulin, the hormone needed to convert glucose into energy.",
+    "relevant_documents": [],
+    "relevant_chunks": ["Diabetes mellitus is a disease characterized by the inability of the body to produce or respond properly to insulin"],
+    "expected_sources": [
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=435",
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=442",
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=445"
+    ]
+  },
+  {
+    "question": "What are the symptoms of diabetes?",
+    "ground_truth_answer": "Common symptoms include frequent urination, excessive thirst, hunger, fatigue, and blurred vision.",
+    "relevant_documents": [],
+    "relevant_chunks": ["Symptoms include frequent urination, lethargy, excessive thirst, and hunger"],
+    "expected_sources": [
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=435",
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=436"
+    ]
+  },
+  {
+    "question": "How is diabetes treated?",
+    "ground_truth_answer": "Treatment includes changes in diet, oral medication, and/or insulin therapy to keep blood glucose within a normal range.",
+    "relevant_documents": [],
+    "relevant_chunks": ["The treatment includes changes in diet, oral medication"],
+    "expected_sources": [
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=438",
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=439",
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=441"
+    ]
+  },
+  {
+    "question": "What is the difference between Type I and Type II diabetes?",
+    "ground_truth_answer": "In Type I diabetes the pancreas produces little or no insulin; in Type II diabetes the pancreas may produce enough insulin but the body's cells have become resistant to it.",
+    "relevant_documents": [],
+    "relevant_chunks": ["In Type II diabetes, the pancreas may produce enough insulin, however, cells have become resistant"],
+    "expected_sources": [
+      "The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf#page=436"
+    ]
+  },
+  {
+    "question": "What causes asthma?",
+    "ground_truth_answer": "Asthma is caused by inflammation and narrowing of the airways, often triggered by allergens, exercise, cold air, or respiratory infections.",
+    "relevant_documents": ["The_GALE_ENCYCLOPEDIA_of_MEDICINE_SECOND.pdf"],
+    "relevant_chunks": [],
+    "expected_sources": []
+  }
+]
